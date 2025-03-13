@@ -1,0 +1,36 @@
+{
+    "name": "@outerbase/browsable-durable-object",
+    "version": "1.0.0",
+    "type": "module",
+    "module": "./dist/index.js",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.js",
+            "default": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "description": "A browsable SQL query interface for Cloudflare Durable Objects",
+    "scripts": {
+        "build": "tsc",
+        "prepare": "npm run build"
+    },
+    "keywords": [
+        "cloudflare",
+        "durable-objects",
+        "browser"
+    ],
+    "author": "Outerbase",
+    "license": "MIT",
+    "devDependencies": {
+		"@cloudflare/workers-types": "^4.20250303.0",
+		"typescript": "^5.5.2",
+		"wrangler": "^3.114.0"
+	}
+} 
