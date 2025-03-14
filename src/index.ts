@@ -38,12 +38,12 @@ export function createResponse(
     })
 }
 
-export class BrowsableDurableObject<T = any> extends DurableObject<T> {
+export class BrowsableHandler {
     public sql: SqlStorage | undefined;
     private supportedRoutes = ['/query/raw'];
 
-    constructor(state: DurableObjectState, env: T) {
-        super(state, env);
+    constructor(sql: SqlStorage | undefined) {
+        this.sql = sql;
     }
 
     async fetch(request: Request) {
@@ -55,8 +55,10 @@ export class BrowsableDurableObject<T = any> extends DurableObject<T> {
         // return a 404 to let the user know this inheritance class did not find a 
         // request to match on.
         if (this.supportedRoutes.includes(path)) {
-            // Handle CORS preflight, at the moment this acts as a very
-            // permissive acceptance of requests.
+            // Handle CORS preflight, at the moment this acts as a very permissive
+            // acceptance of requests. Expecting the users to add in their own
+            // version of authentication to protect against users misusing these
+            // endpoints.
             if (request.method === 'OPTIONS') {
                 return corsPreflight();
             }
@@ -69,11 +71,6 @@ export class BrowsableDurableObject<T = any> extends DurableObject<T> {
 
                 return createResponse(data, undefined, 200);
             }
-        }
-
-        // If not a supported route, call the derived class's fetch
-        if (super.fetch) {
-            return super.fetch(request);
         }
         
         return new Response('Not found', { status: 404 });
@@ -147,5 +144,47 @@ export class BrowsableDurableObject<T = any> extends DurableObject<T> {
         }
 
         return cursor.toArray()
+    }
+}
+
+export function Browsable() {
+    return function <T extends { new (...args: any[]): { sql?: SqlStorage, fetch(request: Request): Promise<Response> } }>(
+        constructor: T
+    ) {
+        return class extends constructor {
+            public _bdoHandler?: BrowsableHandler;
+
+            async fetch(request: Request): Promise<Response> {
+                // Initialize handler if not already done
+                if (!this._bdoHandler) {
+                    this._bdoHandler = new BrowsableHandler(this.sql);
+                }
+                
+                // Try browsable handler first
+                const browsableResponse = await this._bdoHandler.fetch(request);
+                
+                // If browsable handler returns 404, try the parent class's fetch
+                if (browsableResponse.status === 404) {
+                    return super.fetch(request);
+                }
+                
+                return browsableResponse;
+            }
+        };
+    };
+}
+
+export class BrowsableDurableObject<TEnv = any> extends DurableObject<TEnv> {
+    public sql: SqlStorage | undefined;
+    protected _bdoHandler?: BrowsableHandler;
+
+    constructor(state: DurableObjectState, env: TEnv) {
+        super(state, env);
+        this.sql = undefined;
+    }
+
+    async fetch(request: Request): Promise<Response> {
+        this._bdoHandler = new BrowsableHandler(this.sql);
+        return this._bdoHandler.fetch(request);
     }
 }

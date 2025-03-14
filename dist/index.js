@@ -20,15 +20,18 @@ export function createResponse(result, error, status) {
         },
     });
 }
-export class BrowsableDurableObject extends DurableObject {
-    constructor(state, env) {
-        super(state, env);
+export class BrowsableHandler {
+    constructor(sql) {
         this.supportedRoutes = ['/query/raw'];
+        this.sql = sql;
     }
     async fetch(request) {
         const url = new URL(request.url);
         const path = url.pathname;
-        // Check if this is a supported route that we should handle
+        // Check if this is a supported route that we should handle in our browsable
+        // class. If no matches are found we call up to super and as a last resort
+        // return a 404 to let the user know this inheritance class did not find a 
+        // request to match on.
         if (this.supportedRoutes.includes(path)) {
             // Handle CORS preflight, at the moment this acts as a very
             // permissive acceptance of requests.
@@ -42,10 +45,6 @@ export class BrowsableDurableObject extends DurableObject {
                 });
                 return createResponse(data, undefined, 200);
             }
-        }
-        // If not a supported route, call the derived class's fetch
-        if (super.fetch) {
-            return super.fetch(request);
         }
         return new Response('Not found', { status: 404 });
     }
@@ -98,5 +97,34 @@ export class BrowsableDurableObject extends DurableObject {
             };
         }
         return cursor.toArray();
+    }
+}
+export function Browsable() {
+    return function (constructor) {
+        return class extends constructor {
+            async fetch(request) {
+                // Initialize handler if not already done
+                if (!this._bdoHandler) {
+                    this._bdoHandler = new BrowsableHandler(this.sql);
+                }
+                // Try browsable handler first
+                const browsableResponse = await this._bdoHandler.fetch(request);
+                // If browsable handler returns 404, try the parent class's fetch
+                if (browsableResponse.status === 404) {
+                    return super.fetch(request);
+                }
+                return browsableResponse;
+            }
+        };
+    };
+}
+export class BrowsableDurableObject extends DurableObject {
+    constructor(state, env) {
+        super(state, env);
+        this.sql = undefined;
+    }
+    async fetch(request) {
+        this._bdoHandler = new BrowsableHandler(this.sql);
+        return this._bdoHandler.fetch(request);
     }
 }
