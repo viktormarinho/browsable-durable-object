@@ -40,15 +40,41 @@ export declare class BrowsableHandler {
     }>;
 }
 export declare function Browsable(): <T extends {
-    new (...args: any[]): {
-        sql?: SqlStorage;
-        fetch(request: Request): Promise<Response>;
-    };
+    new (...args: any[]): any;
 }>(constructor: T) => {
     new (...args: any[]): {
+        [x: string]: any;
         _bdoHandler?: BrowsableHandler;
         fetch(request: Request): Promise<Response>;
-        sql?: SqlStorage;
+        __studio(cmd: StudioRequest): Promise<{
+            headers: {
+                name: string;
+                displayName: string;
+                originalType: string;
+                type: undefined;
+            }[];
+            rows: Record<string, unknown>[];
+            stat: {
+                queryDurationMs: number;
+                rowsAffected: number;
+                rowsRead: number;
+                rowsWritten: number;
+            };
+        } | {
+            headers: {
+                name: string;
+                displayName: string;
+                originalType: string;
+                type: undefined;
+            }[];
+            rows: Record<string, unknown>[];
+            stat: {
+                queryDurationMs: number;
+                rowsAffected: number;
+                rowsRead: number;
+                rowsWritten: number;
+            };
+        }[] | undefined>;
     };
 } & T;
 export declare class BrowsableDurableObject<TEnv = any> extends DurableObject<TEnv> {
@@ -57,3 +83,31 @@ export declare class BrowsableDurableObject<TEnv = any> extends DurableObject<TE
     constructor(state: DurableObjectState, env: TEnv);
     fetch(request: Request): Promise<Response>;
 }
+/**
+ * Studio
+ * ------
+ *
+ * This is the built in Studio UI inside of the Browsable extension. It allows you to optionally
+ * setup a route to enable it. The landing page has an input for you to decide which Durable Object
+ * ID you want to view the data for. After you have entered the identifier the second page is the
+ * Studio database browser experience.
+ */
+interface StudioQueryRequest {
+    type: 'query';
+    id: string;
+    statement: string;
+}
+interface StudioTransactionRequest {
+    type: 'transaction';
+    id: string;
+    statements: string[];
+}
+type StudioRequest = StudioQueryRequest | StudioTransactionRequest;
+interface StudioOptions {
+    basicAuth?: {
+        username: string;
+        password: string;
+    };
+}
+export declare function studio(request: Request, doNamespace: DurableObjectNamespace<any>, options?: StudioOptions): Promise<Response>;
+export {};

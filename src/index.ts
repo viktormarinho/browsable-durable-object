@@ -148,9 +148,7 @@ export class BrowsableHandler {
 }
 
 export function Browsable() {
-    return function <T extends { new (...args: any[]): { sql?: SqlStorage, fetch(request: Request): Promise<Response> } }>(
-        constructor: T
-    ) {
+    return function <T extends { new (...args: any[]): any }>(constructor: T) {
         return class extends constructor {
             public _bdoHandler?: BrowsableHandler;
 
@@ -170,6 +168,24 @@ export function Browsable() {
                 
                 return browsableResponse;
             }
+
+            async __studio(cmd: StudioRequest) {
+				const storage = this.ctx.storage as DurableObjectStorage;
+				const sql = storage.sql as SqlStorage;
+
+				if (cmd.type === 'query') {
+					return executeQuery(sql, cmd.statement);
+				} else if (cmd.type === 'transaction') {
+					return storage.transactionSync(() => {
+						const results = [];
+						for (const statement of cmd.statements) {
+							results.push(executeQuery(sql, statement));
+						}
+
+						return results;
+					});
+				}
+			}
         };
     };
 }
@@ -187,4 +203,264 @@ export class BrowsableDurableObject<TEnv = any> extends DurableObject<TEnv> {
         this._bdoHandler = new BrowsableHandler(this.sql);
         return this._bdoHandler.fetch(request);
     }
+}
+
+
+
+/**
+ * Studio
+ * ------
+ * 
+ * This is the built in Studio UI inside of the Browsable extension. It allows you to optionally
+ * setup a route to enable it. The landing page has an input for you to decide which Durable Object
+ * ID you want to view the data for. After you have entered the identifier the second page is the
+ * Studio database browser experience.
+ */
+interface StudioQueryRequest {
+	type: 'query';
+	id: string;
+	statement: string;
+}
+
+interface StudioTransactionRequest {
+	type: 'transaction';
+	id: string;
+	statements: string[];
+}
+
+type StudioRequest = StudioQueryRequest | StudioTransactionRequest;
+
+function executeQuery(sql: SqlStorage, statement: string) {
+	const cursor = sql.exec(statement);
+
+	const columnSet = new Set();
+	const columnNames = cursor.columnNames.map((colName) => {
+		let renameColName = colName;
+
+		for (let i = 0; i < 20; i++) {
+			if (!columnSet.has(renameColName)) break;
+			renameColName = '__' + colName + '_' + i;
+		}
+
+		return {
+			name: renameColName,
+			displayName: colName,
+			originalType: 'text',
+			type: undefined,
+		};
+	});
+
+	return {
+		headers: columnNames,
+		rows: Array.from(cursor.raw()).map((r) =>
+			columnNames.reduce((a, b, idx) => {
+				a[b.name] = r[idx];
+				return a;
+			}, {} as Record<string, unknown>)
+		),
+		stat: {
+			queryDurationMs: 0,
+			rowsAffected: 0,
+			rowsRead: cursor.rowsRead,
+			rowsWritten: cursor.rowsWritten,
+		},
+	};
+}
+
+function createHomepageInterface() {
+	return `<!DOCTYPE >
+  <html>
+    <title>Outerbase Studio</title>
+    <style>
+      html, body {
+        font-size: 20px;
+        font-family: monospace;
+        padding: 1rem;
+      }
+
+      #name, #submit {
+        font-size: 1rem;
+        padding: 0.2rem 0.5rem;
+        outline: none;
+        font-family: monospace;
+      }
+
+      h1 { font-size: 1.5rem; }
+
+      p {
+        padding: 0;
+        margin: 10px 0;
+      }
+    </style>
+  </html>
+  <body>
+    <h1>Outerbase Studio</h1>
+
+    <form method='get' action=''>
+       <p>env.MY_DURABLE_OBJECT.idFromName(</p>
+       <div style="padding-left: 20px">
+        <input id='name' name='id' placeholder='name' required></input>
+        <button id='submit'>View</button>
+       </div>
+       <p>)</p>
+    </form>
+  </body>
+  </html>`;
+}
+
+function createStudioInterface(stubId: string) {
+	return `<!DOCTYPE >
+  <html>
+    <head>
+      <style>
+        html,
+        body {
+          padding: 0;
+          margin: 0;
+          width: 100vw;
+          height: 100vh;
+        }
+  
+        iframe {
+          width: 100vw;
+          height: 100vh;
+          overflow: hidden;
+          border: 0;
+        }
+      </style>
+      <title>Your Starbase - Outerbase Studio</title>
+      <link
+        rel="icon"
+        type="image/x-icon"
+        href="https://studio.outerbase.com/icons/outerbase.ico"
+      />
+    </head>
+    <body>
+      <script>
+        function handler(e) {
+          if (e.data.type !== "query" && e.data.type !== "transaction") return;
+  
+          fetch(window.location.pathname, {
+            method: "post",
+            body: JSON.stringify({ ...e.data, id: ${JSON.stringify(stubId)} }),
+          })
+            .then((r) => {
+              if (!r.ok) {
+                document.getElementById("editor").contentWindow.postMessage(
+                  {
+                    id: e.data.id,
+                    type: e.data.type,
+                    error: "Something went wrong",
+                  },
+                  "*"
+                );
+                throw new Error("Something went wrong");
+              }
+              return r.json();
+            })
+            .then((r) => {
+              if (r.error) {
+                document.getElementById("editor").contentWindow.postMessage(
+                  {
+                    id: e.data.id,
+                    type: e.data.type,
+                    error: r.error,
+                  },
+                  "*"
+                )
+              }
+  
+              const response = {
+                id: e.data.id,
+                type: e.data.type,
+                data: r.result
+              };
+  
+              document
+                .getElementById("editor")
+                .contentWindow.postMessage(response, "*");
+            })
+            .catch(console.error);
+        }
+  
+        window.addEventListener("message", handler);
+      </script>
+  
+      <iframe
+        id="editor"
+        allow="clipboard-read; clipboard-write"
+        src="https://studio.outerbase.com/embed/starbase"
+      ></iframe>
+    </body>
+  </html>`;
+}
+
+interface StudioOptions {
+	basicAuth?: {
+		username: string;
+		password: string;
+	};
+}
+
+export async function studio(request: Request, doNamespace: DurableObjectNamespace<any>, options?: StudioOptions) {
+	// Protecting
+	if (options?.basicAuth) {
+		const authHeader = request.headers.get('Authorization');
+		if (!authHeader || !authHeader.startsWith('Basic ')) {
+			return new Response('Authentication required', {
+				status: 401,
+				headers: {
+					'WWW-Authenticate': 'Basic realm="Secure Area"',
+				},
+			});
+		}
+
+		const encoded = authHeader.split(' ')[1];
+		const decoded = atob(encoded);
+		const [username, password] = decoded.split(':');
+
+		if (username !== options.basicAuth.username || password !== options.basicAuth.password) {
+			return new Response('Invalid credentials', {
+				status: 401,
+				headers: {
+					'WWW-Authenticate': 'Basic realm="Secure Area"',
+				},
+			});
+		}
+	}
+
+	// We run on a single endpoint, we will make use the METHOD to determine what to do
+	if (request.method === 'GET') {
+		// This is where we render the interface
+		const url = new URL(request.url);
+		const stubId = url.searchParams.get('id');
+
+		if (!stubId) {
+			return new Response(createHomepageInterface(), { headers: { 'Content-Type': 'text/html' } });
+		}
+
+		return new Response(createStudioInterface(stubId), { headers: { 'Content-Type': 'text/html' } });
+	} else if (request.method === 'POST') {
+		const body = (await request.json()) as StudioRequest;
+
+		if (body.type === 'query' || body.type === 'transaction') {
+			const stubId = doNamespace.idFromName(body.id);
+			const stub = doNamespace.get(stubId);
+
+			try {
+				// @ts-ignore - accessing __studio method that we know exists
+				const result = await stub.__studio(body);
+				return Response.json({ result });
+			} catch (e) {
+				if (e instanceof Error) {
+					return Response.json({ error: e.message });
+				}
+				return Response.json({ error: 'Unknown error' });
+			}
+		}
+
+		return Response.json({ error: 'Invalid request' });
+	}
+
+	return new Response('Method not allowed');
 }

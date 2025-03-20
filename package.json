@@ -1,6 +1,6 @@
 {
     "name": "@outerbase/browsable-durable-object",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "type": "module",
     "module": "./dist/index.js",
     "main": "./dist/index.js",
@@ -19,7 +19,8 @@
     "description": "A browsable SQL query interface for Cloudflare Durable Objects",
     "scripts": {
         "build": "tsc",
-        "prepare": "npm run build"
+        "prepare": "npm run build",
+        "publish-npm-module": "npm publish --access public"
     },
     "keywords": [
         "cloudflare",
