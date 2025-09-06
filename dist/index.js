@@ -331,8 +331,11 @@ export async function studio(request, doNamespace, options) {
     if (request.method === 'GET') {
         // This is where we render the interface
         const url = new URL(request.url);
-        const stubId = url.searchParams.get('id');
+        const stubId = options?.enforceId ?? url.searchParams.get('id');
         if (!stubId) {
+            if (options?.serveHomepage === false) {
+                return new Response('Not found', { status: 404 });
+            }
             return new Response(createHomepageInterface(), { headers: { 'Content-Type': 'text/html' } });
         }
         return new Response(createStudioInterface(stubId), { headers: { 'Content-Type': 'text/html' } });
@@ -340,7 +343,8 @@ export async function studio(request, doNamespace, options) {
     else if (request.method === 'POST') {
         const body = (await request.json());
         if (body.type === 'query' || body.type === 'transaction') {
-            const stubId = doNamespace.idFromName(body.id);
+            const id = options?.enforceId ?? body.id;
+            const stubId = doNamespace.idFromName(id);
             const stub = doNamespace.get(stubId);
             try {
                 // @ts-ignore - accessing __studio method that we know exists

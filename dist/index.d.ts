@@ -104,6 +104,8 @@ interface StudioTransactionRequest {
 }
 type StudioRequest = StudioQueryRequest | StudioTransactionRequest;
 interface StudioOptions {
+    enforceId?: string;
+    serveHomepage?: boolean;
     basicAuth?: {
         username: string;
         password: string;
