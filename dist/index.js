@@ -333,7 +333,7 @@ export async function studio(request, doNamespace, options) {
         const url = new URL(request.url);
         const stubId = options?.enforceId ?? url.searchParams.get('id');
         if (!stubId) {
-            if (options?.serveHomepage === false) {
+            if (options?.disableHomepage) {
                 return new Response('Not found', { status: 404 });
             }
             return new Response(createHomepageInterface(), { headers: { 'Content-Type': 'text/html' } });
